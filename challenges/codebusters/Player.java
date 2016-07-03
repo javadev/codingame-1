@@ -10,6 +10,7 @@ enum Const {
     MAX_Y_COORDINATE(9000),
     BUST_DISTANCE_MAX(1760),
     BUST_DISTANCE_MIN(900),
+    STUN_DISTANCE_MAX(1760),
     RELEASE_RANGE(1600),
     FOG_LIMIT(2200), // radius of sight for each buster
     MOVE_DISTANCE(800);
@@ -29,6 +30,12 @@ enum EntityType {
     MY_UNIT,
     ENEMY_UNIT,
     GHOST
+}
+
+enum BusterState {
+    IDLE_OR_MOVING,
+    CARRYING_GHOST,
+    STUNNED
 }
 
 enum Position {
@@ -58,8 +65,9 @@ enum Position {
  * Send your busters out into the fog to trap ghosts and bring them home!
  **/
 class Player {
-    public static void main(String args[]) {
+    private static Map<Integer, Buster> busterCache = new HashMap<>();
 
+    public static void main(String args[]) {
         // Game constants
         Scanner in = new Scanner(System.in);
         int bustersPerPlayer = in.nextInt(); // the number of busters you control
@@ -72,24 +80,33 @@ class Player {
 
         // First turn - get info about my units (mainly to seed the positionSelector)
         InputDataPerTurn inputData = new InputDataPerTurn(in, myTeamID, myBasePosition, enemyBasePosition);
-        List<Buster> listOfMyUnits = inputData.getListOfMyUnits();
-        List<Ghost> listOfVisibleGhosts = inputData.getlistOfVisibleGhosts();
+        debug("inputData= " + inputData);
+        List<Buster> listOfMyUnits = Player.getListOfMyUnits();
+        debug("listOfMyUnits= " + listOfMyUnits);
+        List<Ghost> listOfVisibleGhosts = inputData.getListOfVisibleGhosts();
+        debug("listOfVisibleGhosts= " + listOfVisibleGhosts);
         List<Buster> listOfVisibleEnemies = inputData.getListOfVisibleEnemyUnits();
+        debug("listOfVisibleEnemies= " + listOfVisibleEnemies);
         PositionSelector positionSelector = new PositionSelector(myBasePosition, listOfMyUnits);
 
         for (Buster buster : listOfMyUnits) { // (you have to issue commands every turn)
+            debug("buster= " + buster.getID());
             Position position = positionSelector.getDirectionForBuster(buster);
             buster.moveToward(position);
         }
 
         while (true) { // Game loop
             inputData = new InputDataPerTurn(in, myTeamID, myBasePosition, enemyBasePosition);
-            listOfMyUnits = inputData.getListOfMyUnits();
-            listOfVisibleGhosts = inputData.getlistOfVisibleGhosts();
+            listOfMyUnits = Player.getListOfMyUnits();
+            listOfVisibleGhosts = inputData.getListOfVisibleGhosts();
             listOfVisibleEnemies = inputData.getListOfVisibleEnemyUnits();
 
             for (int i = 0; i < bustersPerPlayer; i++) {
                 Buster thisBuster = listOfMyUnits.get(i);
+
+                if (thisBuster.isStunned()) {
+                    break;
+                }
 
                 if (thisBuster.isCarryingAGhost()) {
                     if (thisBuster.isWithinRangeOfHomeBase()) {
@@ -99,7 +116,10 @@ class Player {
                     }
 
                 } else { //seek out a ghost to capture
-                    if (thisBuster.canCaptureaGhost(listOfVisibleGhosts)) {
+                    if (thisBuster.isAbleToUseStunAbility()
+                            && thisBuster.canStunEnemyBuster(listOfVisibleEnemies)) {
+                        thisBuster.stunEnemyBuster(thisBuster.getIDOfSomeEnemyBuster(listOfVisibleEnemies));
+                    } else if (thisBuster.canCaptureGhost(listOfVisibleGhosts)) {
                         int ghostID = thisBuster.getIDOfACapturableGhost(listOfVisibleGhosts);
                         thisBuster.captureGhost(ghostID);
                     } else {
@@ -107,6 +127,43 @@ class Player {
                     }
                 }
             }
+        }
+    }
+
+    static Map<Integer, Buster> getBusterCache() {
+        return busterCache;
+    }
+
+    static List<Buster> getListOfMyUnits() {
+        List<Buster> listOfBusters = new ArrayList<>();
+        for (Map.Entry<Integer, Buster> busterEntry : getBusterCache().entrySet()) {
+            listOfBusters.add(busterEntry.getValue());
+        }
+        return listOfBusters;
+    }
+
+    static void addOrUpdateBustersInCache(List<Buster> listOfBusters) {
+        for (Buster buster : listOfBusters) {
+            addOrUpdateBusterInCache(buster.getID(),
+                                     buster.getX(),
+                                     buster.getY(),
+                                     buster.getBusterState(),
+                                     buster.getID(),
+                                     Position.TOP_LEFT);
+        }
+    }
+
+    static void addOrUpdateBusterInCache(int entityID,
+                                         int x,
+                                         int y,
+                                         BusterState busterState,
+                                         int numberOfInteractions,
+                                         Position myBasePosition) {
+        if (busterCache.containsKey(entityID)) {
+            busterCache.get(entityID).update(x, y, busterState, numberOfInteractions);
+        } else {
+            Buster newBuster = new Buster(entityID, x, y, busterState, numberOfInteractions, myBasePosition);
+            busterCache.put(entityID, newBuster);
         }
     }
 
@@ -132,17 +189,15 @@ class Player {
 }
 
 class InputDataPerTurn {
-    int _numberOfVisibleEntities;
-    List<Buster> _listOfMyUnits;
-    List<Ghost> _listOfVisibleGhosts;
-    List<Buster> _listOfVisibleEnemyUnits;
+    private int _numberOfVisibleEntities;
+    private List<Ghost> _listOfVisibleGhosts;
+    private List<Buster> _listOfVisibleEnemyUnits;
 
     InputDataPerTurn(Scanner in,
                      int myTeamID,
                      Position myBasePosition,
                      Position enemyBasePosition) {
         _numberOfVisibleEntities = in.nextInt(); // the number of busters and ghosts visible to you (within 2200 units of a buster)
-        _listOfMyUnits = new ArrayList<>();
         _listOfVisibleGhosts = new ArrayList<>();
         _listOfVisibleEnemyUnits = new ArrayList<>();
         for (int i = 0; i < _numberOfVisibleEntities; i++) {
@@ -153,13 +208,15 @@ class InputDataPerTurn {
             int busterState = in.nextInt(); // state (busters only): 0=idle, 1=carrying a ghost.
             int numberOfInteractions = in.nextInt(); // For busters: Ghost id being carried. For ghosts: number of busters attempting to trap this ghost.
 
+            BusterState thisBusterState = getBusterStateFromInt(busterState);
             EntityType thisEntityType = getEntityTypeFromInt(entityType, myTeamID);
+
             switch (thisEntityType) {
                 case MY_UNIT:
-                    _listOfMyUnits.add(new Buster(entityID, x, y, busterState, numberOfInteractions, myBasePosition));
+                    Player.addOrUpdateBusterInCache(entityID, x, y, thisBusterState, numberOfInteractions, myBasePosition);
                     break;
                 case ENEMY_UNIT:
-                    _listOfVisibleEnemyUnits.add(new Buster(entityID, x, y, busterState, numberOfInteractions, enemyBasePosition));
+                    _listOfVisibleEnemyUnits.add(new Buster(entityID, x, y, thisBusterState, numberOfInteractions, enemyBasePosition));
                     break;
                 case GHOST:
                     _listOfVisibleGhosts.add(new Ghost(entityID, x, y, numberOfInteractions));
@@ -170,15 +227,11 @@ class InputDataPerTurn {
         }
     }
 
-    List<Buster> getListOfMyUnits() {
-        return _listOfMyUnits;
-    }
-
     List<Buster> getListOfVisibleEnemyUnits() {
         return _listOfVisibleEnemyUnits;
     }
 
-    List<Ghost> getlistOfVisibleGhosts() {
+    List<Ghost> getListOfVisibleGhosts() {
         return _listOfVisibleGhosts;
     }
 
@@ -189,6 +242,17 @@ class InputDataPerTurn {
             return EntityType.MY_UNIT;
         } else {
             return EntityType.ENEMY_UNIT;
+        }
+    }
+
+    private BusterState getBusterStateFromInt(int busterState) {
+        switch (busterState) {
+            case 1:
+                return BusterState.CARRYING_GHOST;
+            case 2:
+                return BusterState.STUNNED;
+            default: // 0
+                return BusterState.IDLE_OR_MOVING;
         }
     }
 }
@@ -274,43 +338,68 @@ class Entity {
 }
 
 class Buster extends Entity {
-    private boolean _isCarryingAGhost;
-    private int _idOfGhostBeingCarried;
     private Position _positionOfHomeBase;
+    private BusterState _busterState;
+    private int _idOfGhostBeingCarried = -1;
+    private int _numberOfTurnsUntilStunAbilityIsReady = 0;
 
     Buster(int entityID,
            int xPosition,
            int yPosition,
-           int busterState,
+           BusterState busterState,
            int numberOfInteractions,
            Position positionOfHomeBase) {
-        _entityType = EntityType.MY_UNIT;
         _entityID = entityID;
         _xPosition = xPosition;
         _yPosition = yPosition;
+        _busterState = busterState;
         _positionOfHomeBase = positionOfHomeBase;
+        _entityType = EntityType.MY_UNIT;
 
-        if (busterState == 0) {
-            _isCarryingAGhost = false;
-        } else if (busterState == 1 & numberOfInteractions > -1) {
-            _isCarryingAGhost = true;
+        if (isCarryingAGhost()) {
             _idOfGhostBeingCarried = numberOfInteractions;
         }
     }
 
-    boolean isCarryingAGhost() {
-        return _isCarryingAGhost;
+    // Update (persistent) buster each turn:
+    void update(int x,
+                int y,
+                BusterState newBusterState,
+                int numberOfInteractions) {
+        _xPosition = x;
+        _yPosition = y;
+        _busterState = newBusterState;
+
+        if (isCarryingAGhost()) {
+            _idOfGhostBeingCarried = numberOfInteractions;
+        }
+
+        if (_numberOfTurnsUntilStunAbilityIsReady > 0) {
+            _numberOfTurnsUntilStunAbilityIsReady--;
+        }
     }
 
-    int idOfGhostBeingCarried() {
-        return _idOfGhostBeingCarried;
+    BusterState getBusterState() {
+        return _busterState;
+    }
+
+    boolean isCarryingAGhost() {
+        return (_busterState == BusterState.CARRYING_GHOST);
+    }
+
+    boolean isStunned() {
+        return (_busterState == BusterState.STUNNED);
+    }
+
+    boolean isAbleToUseStunAbility() {
+        return _numberOfTurnsUntilStunAbilityIsReady == 0;
     }
 
     boolean isWithinRangeOfHomeBase() {
         return Distance.isWithinRangeOf(_xPosition, _yPosition, _positionOfHomeBase, Const.RELEASE_RANGE.get());
     }
 
-    boolean canCaptureaGhost(List<Ghost> listOfVisibleGhosts) {
+    boolean canCaptureGhost(List<Ghost> listOfVisibleGhosts) {
         for (Ghost ghost : listOfVisibleGhosts) {
             int distanceBetween = Distance.between(_xPosition, _yPosition, ghost.getX(), ghost.getY());
             if (distanceBetween < Const.BUST_DISTANCE_MAX.get()
@@ -321,8 +410,24 @@ class Buster extends Entity {
         return false;
     }
 
+    boolean canStunEnemyBuster(List<Buster> listOfEnemyBusters) {
+        if (this.isAbleToUseStunAbility()) {
+            for (Buster enemyBuster : listOfEnemyBusters) {
+                int distanceBetween = Distance.between(getX(), getY(), enemyBuster.getX(), enemyBuster.getY());
+                if (distanceBetween < Const.STUN_DISTANCE_MAX.get()
+                        && !enemyBuster.isStunned()) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    int idOfGhostBeingCarried() {
+        return _idOfGhostBeingCarried;
+    }
+
     int getIDOfACapturableGhost(List<Ghost> listOfVisibleGhosts) {
-        int idOfClosestGhost = -1;
         for (Ghost ghost : listOfVisibleGhosts) {
             int distanceBetween = Distance.between(_xPosition, _yPosition, ghost.getX(), ghost.getY());
             if (distanceBetween < Const.BUST_DISTANCE_MAX.get()
@@ -330,11 +435,25 @@ class Buster extends Entity {
                 return ghost.getID();
             }
         }
-        return idOfClosestGhost;
+        return -1;
+    }
+
+    int getIDOfSomeEnemyBuster(List<Buster> listOfEnemyBusters) {
+        for (Buster enemyBuster : listOfEnemyBusters) {
+            int distanceBetween = Distance.between(getX(), getY(), enemyBuster.getX(), enemyBuster.getY());
+            if (distanceBetween < Const.STUN_DISTANCE_MAX.get()) {
+                return enemyBuster.getID();
+            }
+        }
+        return -1;
     }
 
     private void move(int x, int y) {
         System.out.println("MOVE " + x + " " + y);
+    }
+
+    void moveToward(Position position) {
+        move(position.getX(), position.getY());
     }
 
     void captureGhost(int ghostID) {
@@ -345,8 +464,9 @@ class Buster extends Entity {
         System.out.println("RELEASE");
     }
 
-    void moveToward(Position position) {
-        move(position.getX(), position.getY());
+    void stunEnemyBuster(int enemyBusterID) {
+        _numberOfTurnsUntilStunAbilityIsReady = 20;
+        System.out.println("STUN " + enemyBusterID);
     }
 }
 
