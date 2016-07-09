@@ -1,6 +1,6 @@
 import java.util.*;
-import java.io.*;
-import java.math.*;
+
+@SuppressWarnings("all")
 
 class Solution {
     private static String ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ?";

@@ -1,6 +1,6 @@
-import java.util.*;
-import java.io.*;
-import java.math.*;
+import java.util.Scanner;
+
+@SuppressWarnings("all")
 
 enum OrdinalDirection {
     N(0, -1),
@@ -30,11 +30,10 @@ enum OrdinalDirection {
 }
 
 class Player {
-    private final int MAX_X_COORDINATE = 40; // x=0 to x=39, left to right
-    private final int MAX_Y_COORDINATE = 18; // y=0 to y=17, top to bottom
-
     private static int thorCurrentXPosition;
     private static int thorCurrentYPosition;
+    private final int MAX_X_COORDINATE = 40; // x=0 to x=39, left to right
+    private final int MAX_Y_COORDINATE = 18; // y=0 to y=17, top to bottom
 
     public static void main(String args[]) {
         Scanner in = new Scanner(System.in);

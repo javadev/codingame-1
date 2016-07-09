@@ -1,6 +1,8 @@
-import java.util.*;
-import java.io.*;
-import java.math.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Scanner;
+
+@SuppressWarnings("all")
 
 /**
  * At the start of each game turn, you are given the height of the 8 mountains from left to right.
