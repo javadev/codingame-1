@@ -1,6 +1,4 @@
-import java.util.*;
-import java.io.*;
-import java.math.*;
+import java.util.Scanner;
 
 /**
  * Auto-generated code below aims at helping you parse
@@ -11,8 +9,7 @@ class Player {
     public static void main(String args[]) {
         Scanner in = new Scanner(System.in);
 
-        // game loop
-        while (true) {
+        while (true) { // game loop
             int x = in.nextInt();
             int y = in.nextInt();
             int nextCheckpointX = in.nextInt(); // x position of the next check point
@@ -22,17 +19,20 @@ class Player {
             int opponentX = in.nextInt();
             int opponentY = in.nextInt();
 
-            // Write an action using System.out.println()
-            // To debug: System.err.println("Debug messages...");
-
-            int speed;
-            if (nextCheckpointAngle > 90 || nextCheckpointAngle < -90) {
-                speed =0;
+            if (nextCheckpointDist > 7000 && nextCheckpointDist < 8000) {
+                System.out.println(nextCheckpointX + " " + nextCheckpointY + " BOOST");
             } else {
-                speed = 100;
+                int speed = calculateOptimalSpeed(nextCheckpointAngle);
+                System.out.println(nextCheckpointX + " " + nextCheckpointY + " " + speed);
             }
-            
-            System.out.println(nextCheckpointX + " " + nextCheckpointY + " " + speed);
+        }
+    }
+
+    static int calculateOptimalSpeed(int angleBetweenPodAndNextCheckpoint) {
+        if (angleBetweenPodAndNextCheckpoint > 90 || angleBetweenPodAndNextCheckpoint < -90) {
+            return 0;
+        } else {
+            return 100;
         }
     }
 }
