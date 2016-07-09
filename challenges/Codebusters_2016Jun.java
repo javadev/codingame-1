@@ -1,9 +1,6 @@
-/*
- * Comment out the package name line to sync file with Codingame:
- */
-//package codingame.challenges.codebusters;
-
 import java.util.*;
+
+@SuppressWarnings("all")
 
 enum Const {
     MAX_X_COORDINATE(16000),
